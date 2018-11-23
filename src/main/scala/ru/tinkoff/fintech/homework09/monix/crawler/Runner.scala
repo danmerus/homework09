@@ -1,13 +1,10 @@
 package ru.tinkoff.fintech.homework09.monix.crawler
 
-import monix.eval.{Fiber, Task}
-import monix.execution.AsyncQueue
+import monix.eval.Task
 import monix.execution.Scheduler.Implicits.global
-import cats.implicits._
-import scala.concurrent.duration._
 
 import scala.concurrent.Await
-import ru.tinkoff.fintech.homework09.answers.monix.{Worker => AWorker}
+import scala.concurrent.duration._
 
 
 object Runner extends App {
