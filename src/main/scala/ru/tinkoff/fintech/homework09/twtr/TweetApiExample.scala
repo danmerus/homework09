@@ -47,32 +47,47 @@ case class GetTweetRequest(id: String)
 case class LikeRequest(id: String)
 
 trait TweetStorage {
-  def add(t:Tweet):Unit
-  def get(id:String): Option[Tweet]
-  def like(id:String): Int
+//  def add(t:Tweet):Unit
+//  def get(id:String): Option[Tweet]
+//  def like(id:String): Int
+
+  def add(t:Tweet): Future[Unit]
+  def get(id:String): Future[Option[Tweet]]
+  def like(id:String): Future[Int]
 }
 
 class InMemoryStorage extends TweetStorage {
+  implicit val ec = ExecutionContext.global
   private var storage: Map[String, Tweet] = Map[String, Tweet]()
   def getSize:Int = {
     storage.size
   }
-  def add(t: Tweet){
-    storage = storage + (t.id -> t)
-  }
-  def get(id:String): Option[Tweet] = {
-    storage.get(id)
-  }
-  def like(id:String): Int = {
-    try {
-      var t = storage(id)
-      val newT = t.copy(likes = t.likes+1)
-      storage + (id->newT)
-      newT.likes
+
+  def add(t: Tweet): Future[Unit] = {
+    val out:Future[Unit] = Future {
+      storage = storage + (t.id -> t)
     }
-    catch {
-      case e: java.util.NoSuchElementException => 0
+    out
+  }
+  def get(id:String): Future[Option[Tweet]] = {
+    val out: Future[Option[Tweet]] = Future {
+      storage.get(id)
     }
+    out
+  }
+  def like(id:String): Future[Int] = {
+    val out: Future[Int] = Future {
+      try {
+        var t = storage(id)
+        val newT = t.copy(likes = t.likes + 1)
+        storage + (id -> newT)
+        newT.likes
+      }
+      catch {
+        case e: java.util.NoSuchElementException => 0
+      }
+    }
+    out
   }
 }
 
@@ -101,23 +116,14 @@ class TweetApi(storage: TweetStorage) {
   }
 
   def getTweet(request: GetTweetRequest): Future[Option[Tweet]] = {
-    val res : Future[Option[Tweet]] = Future {
-      val t: Option[Tweet] = storage.get(request.id)
-      t match {
-        case Some(t) => Some(t)
-        case None => throw new RuntimeException("Unable To Get Tweet!")
-      }
-    }
-    res
+    val t : Future[Option[Tweet]] = storage.get(request.id)
+    t
   }
 
-  def likeTweet(request: LikeRequest): Future[Option[Int]] = {
-    val res: Future[Option[Int]] = Future {
-      val likes = storage.like(request.id)
-      Some(likes)
-    }
+  def likeTweet(request: LikeRequest): Future[Int] = {
+    val res: Future[Int] = storage.like(request.id)
     res
-  }
+    }
 }
 
 object TweetApiExample extends App {
