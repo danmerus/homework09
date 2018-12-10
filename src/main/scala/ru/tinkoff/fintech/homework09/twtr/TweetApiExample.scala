@@ -5,8 +5,7 @@ import java.util.UUID
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.matching.Regex
-import scala.concurrent._
-import scala.concurrent.duration._
+
 
 /**
   * Вам необходимо реализовать api для создания твиттов, получения твитта и лайка твитта
@@ -46,53 +45,53 @@ case class CreateTweetRequest(text: String, user: String)
 case class GetTweetRequest(id: String)
 case class LikeRequest(id: String)
 
-trait TweetStorage {
-//  def add(t:Tweet):Unit
-//  def get(id:String): Option[Tweet]
-//  def like(id:String): Int
+sealed trait Result[T]
+final case class Success[T](value: T) extends Result[T]
+final case class Error[T](message: String) extends Result[T]
 
-  def add(t:Tweet): Future[Unit]
-  def get(id:String): Future[Option[Tweet]]
-  def like(id:String): Future[Int]
+trait TweetStorage {
+  def putTweet(tweet: Tweet): Future[Result[Tweet]]
+  def getTweet(id: String): Future[Result[Tweet]]
+  def updateTweet(tweet: Tweet): Future[Result[Tweet]]
 }
 
 class InMemoryStorage extends TweetStorage {
   implicit val ec = ExecutionContext.global
-  private var storage: Map[String, Tweet] = Map[String, Tweet]()
+  private var storage: Map[String, Tweet] = Map.empty
+
   def getSize:Int = {
     storage.size
   }
 
-  def add(t: Tweet): Future[Unit] = {
-    val out:Future[Unit] = Future {
-      storage = storage + (t.id -> t)
+  override def putTweet(t: Tweet): Future[Result[Tweet]] = Future {
+    storage.get(t.id) match {
+      case Some(e) => Error("Tweet already in storage")
+      case None => storage += (t.id -> t)
+                   Success(t)
     }
-    out
   }
-  def get(id:String): Future[Option[Tweet]] = {
-    val out: Future[Option[Tweet]] = Future {
-      storage.get(id)
+
+  override def getTweet(id:String): Future[Result[Tweet]] = Future {
+    storage.get(id) match {
+      case Some(tweet) => Success(tweet)
+      case _ => Error("No such tweet")
     }
-    out
   }
-  def like(id:String): Future[Int] = {
-    val out: Future[Int] = Future {
-      try {
-        var t = storage(id)
-        val newT = t.copy(likes = t.likes + 1)
-        storage + (id -> newT)
-        newT.likes
-      }
-      catch {
-        case e: java.util.NoSuchElementException => 0
-      }
+
+  override def updateTweet(tweet: Tweet): Future[Result[Tweet]] = Future {
+    storage.get(tweet.id) match {
+      case Some(_) =>
+        storage += (tweet.id -> tweet)
+        Success(tweet)
+      case None => Error("Tweet is not in storage")
     }
-    out
   }
 }
 
 class TweetApi(storage: TweetStorage) {
   implicit val ec = ExecutionContext.global
+
+  val MAX_TWEET_LENGTH = 256
 
   def getHashtags(text: String): Seq[String] = {
     val hashtagPttrn: Regex = "#[0-9a-zA-Z]+".r
@@ -100,42 +99,30 @@ class TweetApi(storage: TweetStorage) {
     out.toList
   }
 
-  def createTweet(request: CreateTweetRequest): Future[Option[Tweet]] = {
-    val res : Future[Option[Tweet]] = Future {
-      if (request.text.length < 256) {
+  def createTweet(request: CreateTweetRequest): Future[Result[Tweet]] = {
+    if (request.text.length < MAX_TWEET_LENGTH) {
       val t = Tweet(id = UUID.randomUUID.toString, user = request.user,
-        text = request.text, hashTags = getHashtags(request.text), createdAt = Option(java.time.Instant.now()), likes = 0)
-      storage.add(t)
-      Some(t)
+        text = request.text, hashTags = getHashtags(request.text), createdAt = Some(java.time.Instant.now()), likes = 0)
+      storage.putTweet(t)
     }
     else {
-      throw new RuntimeException("Tweet Is Too Long!")
-      }
+      Future(Error("too long!"))
     }
-    res
   }
 
-  def getTweet(request: GetTweetRequest): Future[Option[Tweet]] = {
-    val t : Future[Option[Tweet]] = storage.get(request.id)
-    t
+  def getTweet(request: GetTweetRequest): Future[Result[Tweet]] = {
+    storage.getTweet(request.id)
   }
 
-  def likeTweet(request: LikeRequest): Future[Int] = {
-    val res: Future[Int] = storage.like(request.id)
-    res
+  def likeTweet(request: LikeRequest): Future[Result[Tweet]] = {
+    storage.getTweet(request.id) flatMap {
+      case Success(tweet) =>
+        storage.updateTweet(tweet.copy(likes = tweet.likes + 1))
+      case Error(message) => Future(Error(message))
     }
+  }
 }
 
 object TweetApiExample extends App {
-  implicit val ec = ExecutionContext.global
-  val storage: TweetStorage = new InMemoryStorage {}
-  val app = new TweetApi(storage)
 
-  val request = CreateTweetRequest(user = "me", text = "Hello, world!")
-
-  val res = for {
-    r1 <- Await.result(app.createTweet(request), 5.seconds)
-  } yield r1
-
-  println(res.get)
 }
